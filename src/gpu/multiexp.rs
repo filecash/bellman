@@ -166,9 +166,6 @@ impl<E> MultiexpKernel<E> where E: Engine {
             n: usize)
             -> GPUResult<(<G as CurveAffine>::Projective)>
             where G: CurveAffine {
-        if n == 0 {
-            return Ok(<G as CurveAffine>::Projective::zero());
-        }
 
         let num_devices = self.0.len();
 
@@ -192,15 +189,17 @@ impl<E> MultiexpKernel<E> where E: Engine {
 
         match thread::scope(|s| {
             let mut threads = Vec::new();
-            for ((bases, exps), kern) in bases.chunks(chunk_size).zip(exps.chunks(chunk_size)).zip(self.0.iter_mut()) {
-                threads.push(s.spawn(move |s| {
-                    let mut acc = <G as CurveAffine>::Projective::zero();
-                    for (bases, exps) in bases.chunks(CHUNK_SIZE).zip(exps.chunks(CHUNK_SIZE)) {
-                        let result = kern.multiexp(bases, exps, bases.len()).unwrap();
-                        acc.add_assign(&result);
-                    }
-                    acc
-                }));
+            if chunk_size > 0 {
+                for ((bases, exps), kern) in bases.chunks(chunk_size).zip(exps.chunks(chunk_size)).zip(self.0.iter_mut()) {
+                    threads.push(s.spawn(move |s| {
+                        let mut acc = <G as CurveAffine>::Projective::zero();
+                        for (bases, exps) in bases.chunks(CHUNK_SIZE).zip(exps.chunks(CHUNK_SIZE)) {
+                            let result = kern.multiexp(bases, exps, bases.len()).unwrap();
+                            acc.add_assign(&result);
+                        }
+                        acc
+                    }));
+                }
             }
             let mut acc = cpu_multiexp(pool, (Arc::new(cpu_bases.to_vec()), 0), FullDensity, Arc::new(cpu_exps.to_vec()), &mut None).wait().unwrap();
             for t in threads {
