@@ -9,14 +9,19 @@ use super::sources;
 use super::structs;
 use super::utils;
 use crossbeam::thread;
+use futures::Future;
+
+use crate::multicore::Worker;
+use crate::multiexp::{multiexp as cpu_multiexp, FullDensity};
 
 // NOTE: Please read `structs.rs` for an explanation for unsafe transmutes of this code!
 
-// Best params for RTX 2080Ti
+// Best params for RTX 2080Ti + AMD Ryzen
 const NUM_GROUPS : usize = 334; // Partition the bases into `NUM_GROUPS` groups
 const WINDOW_SIZE : usize = 10; // Exponents are 255bit long, divide exponents into `WINDOW_SIZE` bit windows
 const NUM_WINDOWS : usize = 26; // Then we will have Ceil(256/`WINDOW_SIZE`) windows per exponent
 const CHUNK_SIZE : usize = 25_000_000; // Maximum number of base elements we can pass to a GPU
+const SPEEDUP : f64 = 3.1f64; // Speedup of a single GPU compared to CPU
 // So each group will have `NUM_WINDOWS` threads and as there are `NUM_GROUPS` groups, there will
 // be `NUM_GROUPS` * `NUM_WINDOWS` threads in total.
 
@@ -154,6 +159,7 @@ impl<E> MultiexpKernel<E> where E: Engine {
     }
 
     pub fn multiexp<G>(&mut self,
+            pool: &Worker,
             bases: Arc<Vec<G>>,
             exps: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
             skip: usize,
@@ -165,7 +171,6 @@ impl<E> MultiexpKernel<E> where E: Engine {
         }
 
         let num_devices = self.0.len();
-        let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
 
         // Bases are skipped by `self.1` elements, when converted from (Arc<Vec<G>>, usize) to Source
         // https://github.com/zkcrypto/bellman/blob/10c5010fd9c2ca69442dc9775ea271e286e776d8/src/multiexp.rs#L38
@@ -173,8 +178,15 @@ impl<E> MultiexpKernel<E> where E: Engine {
 
         let exps = &exps[..n];
 
+        let cpu_n = ((n as f64) / ((num_devices as f64) * SPEEDUP + 1.0f64)).ceil() as usize;
+        let n = n - cpu_n;
+
+        let (cpu_bases, bases) = bases.split_at(cpu_n);
+        let (cpu_exps, exps) = exps.split_at(cpu_n);
+
+        let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
+
         match thread::scope(|s| {
-            let mut acc = <G as CurveAffine>::Projective::zero();
             let mut threads = Vec::new();
             for ((bases, exps), kern) in bases.chunks(chunk_size).zip(exps.chunks(chunk_size)).zip(self.0.iter_mut()) {
                 threads.push(s.spawn(move |s| {
@@ -186,6 +198,7 @@ impl<E> MultiexpKernel<E> where E: Engine {
                     acc
                 }));
             }
+            let mut acc = cpu_multiexp(pool, (Arc::new(cpu_bases.to_vec()), 0), FullDensity, Arc::new(cpu_exps.to_vec()), &mut None).wait().unwrap();
             for t in threads {
                 let result = t.join().unwrap();
                 acc.add_assign(&result);
