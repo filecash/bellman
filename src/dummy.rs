@@ -53,7 +53,7 @@ impl <E: Engine> Circuit<E> for DummyDemo<E> {
             x_val.ok_or(SynthesisError::AssignmentMissing)
         })?;
 
-        for k in 0..150_000_000 {
+        for k in 0..130_000_000 {
             // Allocate: x * x = x2
             let x2_val = x_val.map(|mut e| {
                 e.square();
