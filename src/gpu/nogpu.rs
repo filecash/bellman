@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::marker::PhantomData;
 use paired::{Engine, CurveAffine};
 use super::error::{GPUResult, GPUError};
+use crate::multicore::Worker;
 
 // This module is compiled instead of `fft.rs` and `multiexp.rs` if `gpu` feature is disabled.
 
@@ -27,11 +28,12 @@ pub struct MultiexpKernel<E>(PhantomData::<E>) where E: Engine;
 
 impl<E> MultiexpKernel<E> where E: Engine {
 
-    pub fn create(_: u32) -> GPUResult<MultiexpKernel<E>> {
+    pub fn create() -> GPUResult<MultiexpKernel<E>> {
         return Err(GPUError {msg: "GPU accelerator is not enabled!".to_string()});
     }
 
     pub fn multiexp<G>(&mut self,
+            _: &Worker,
             _: Arc<Vec<G>>,
             _: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
             _: usize,
