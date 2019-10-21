@@ -178,6 +178,10 @@ impl<E> MultiexpKernel<E> where E: Engine {
 
         let exps = &exps[..n];
 
+        // Observations show that a GPU can calculate multiexp of `SPEEDUP * n` elements in the
+        // same amount of time a CPU calculates multiexp of `n` elements.
+        // Therefore we should calculate `cpu_n` so that: `N = (cpu_n * SPEEDUP) * num_gpus + cpu_n`
+        // This yields: `N = cpu_n * (SPEEDUP * num_gpus + 1) => cpu_n = N / (SPEEDUP * num_gpus + 1)`
         let cpu_n = ((n as f64) / ((num_devices as f64) * SPEEDUP + 1.0f64)).ceil() as usize;
         let n = n - cpu_n;
 
