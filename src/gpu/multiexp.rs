@@ -20,7 +20,7 @@ use crate::multiexp::{multiexp as cpu_multiexp, FullDensity};
 const NUM_GROUPS : usize = 334; // Partition the bases into `NUM_GROUPS` groups
 const WINDOW_SIZE : usize = 10; // Exponents are 255bit long, divide exponents into `WINDOW_SIZE` bit windows
 const NUM_WINDOWS : usize = 26; // Then we will have Ceil(256/`WINDOW_SIZE`) windows per exponent
-const CHUNK_SIZE : usize = 25_000_000; // Maximum number of base elements we can pass to a GPU
+const CHUNK_SIZE : usize = 15_000_000; // Maximum number of base elements we can pass to a GPU
 const SPEEDUP : f64 = 3.1f64; // Speedup of a single GPU compared to CPU
 // So each group will have `NUM_WINDOWS` threads and as there are `NUM_GROUPS` groups, there will
 // be `NUM_GROUPS` * `NUM_WINDOWS` threads in total.
@@ -179,7 +179,7 @@ impl<E> MultiexpKernel<E> where E: Engine {
         // same amount of time a CPU calculates multiexp of `n` elements.
         // Therefore we should calculate `cpu_n` so that: `N = (cpu_n * SPEEDUP) * num_gpus + cpu_n`
         // This yields: `N = cpu_n * (SPEEDUP * num_gpus + 1) => cpu_n = N / (SPEEDUP * num_gpus + 1)`
-        let cpu_n = ((n as f64) / ((num_devices as f64) * SPEEDUP + 1.0f64)).ceil() as usize;
+        let cpu_n = 0; //((n as f64) / ((num_devices as f64) * SPEEDUP + 1.0f64)).ceil() as usize;
         let n = n - cpu_n;
 
         let (cpu_bases, bases) = bases.split_at(cpu_n);
