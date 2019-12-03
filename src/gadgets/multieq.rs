@@ -23,16 +23,15 @@ impl<E: ScalarEngine, CS: ConstraintSystem<E>> MultiEq<E, CS> {
 
     fn accumulate(&mut self) {
         let ops = self.ops;
-        let lhs = self.lhs.clone();
-        let rhs = self.rhs.clone();
+        let lhs = std::mem::replace(&mut self.lhs, LinearCombination::zero());
+        let rhs = std::mem::replace(&mut self.rhs, LinearCombination::zero());
         self.cs.enforce(
             || format!("multieq {}", ops),
             |_| lhs,
             |lc| lc + CS::one(),
             |_| rhs,
         );
-        self.lhs = LinearCombination::zero();
-        self.rhs = LinearCombination::zero();
+
         self.bits_used = 0;
         self.ops += 1;
     }
@@ -51,8 +50,8 @@ impl<E: ScalarEngine, CS: ConstraintSystem<E>> MultiEq<E, CS> {
         assert!((E::Fr::CAPACITY as usize) > (self.bits_used + num_bits));
 
         let coeff = E::Fr::from_str("2").unwrap().pow(&[self.bits_used as u64]);
-        self.lhs = self.lhs.clone() + (coeff, lhs);
-        self.rhs = self.rhs.clone() + (coeff, rhs);
+        self.lhs += (coeff, lhs);
+        self.rhs += (coeff, rhs);
         self.bits_used += num_bits;
     }
 }

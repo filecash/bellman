@@ -153,7 +153,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, AddAssign, Sub};
 
 /// Computations are expressed in terms of arithmetic circuits, in particular
 /// rank-1 quadratic constraint systems. The `Circuit` trait represents a
@@ -211,9 +211,21 @@ impl<E: ScalarEngine> Add<(E::Fr, Variable)> for LinearCombination<E> {
     type Output = LinearCombination<E>;
 
     fn add(mut self, (coeff, var): (E::Fr, Variable)) -> LinearCombination<E> {
-        self.0.push((var, coeff));
+        self += (coeff, var);
 
         self
+    }
+}
+
+impl<'a, E: ScalarEngine> AddAssign<(E::Fr, Variable)> for &'a mut LinearCombination<E> {
+    fn add_assign(&mut self, (coeff, var): (E::Fr, Variable)) {
+        self.0.push((var, coeff));
+    }
+}
+
+impl<E: ScalarEngine> AddAssign<(E::Fr, Variable)> for LinearCombination<E> {
+    fn add_assign(&mut self, (coeff, var): (E::Fr, Variable)) {
+        self.0.push((var, coeff));
     }
 }
 
@@ -272,13 +284,30 @@ impl<'a, E: ScalarEngine> Add<(E::Fr, &'a LinearCombination<E>)> for LinearCombi
     type Output = LinearCombination<E>;
 
     fn add(mut self, (coeff, other): (E::Fr, &'a LinearCombination<E>)) -> LinearCombination<E> {
+        self += (coeff, other);
+
+        self
+    }
+}
+
+impl<'a, 'b, E: ScalarEngine> AddAssign<(E::Fr, &'a LinearCombination<E>)>
+    for &'b mut LinearCombination<E>
+{
+    fn add_assign(&mut self, (coeff, other): (E::Fr, &'a LinearCombination<E>)) {
         for s in &other.0 {
             let mut tmp = s.1;
             tmp.mul_assign(&coeff);
-            self = self + (tmp, s.0);
+            *self += (tmp, s.0);
         }
-
-        self
+    }
+}
+impl<'a, E: ScalarEngine> AddAssign<(E::Fr, &'a LinearCombination<E>)> for LinearCombination<E> {
+    fn add_assign(&mut self, (coeff, other): (E::Fr, &'a LinearCombination<E>)) {
+        for s in &other.0 {
+            let mut tmp = s.1;
+            tmp.mul_assign(&coeff);
+            *self += (tmp, s.0);
+        }
     }
 }
 
