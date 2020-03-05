@@ -66,9 +66,10 @@ where
         join(vec![0u32; limbs], ", ")
     );
     let inv_def = format!("#define {}_INV {}", name, inv);
+    let typedef = format!("typedef struct { limb val[{}_LIMBS]; } {};", name, name);
     return format!(
-        "{}\n{}\n{}\n{}\n{}",
-        limbs_def, one_def, p_def, zero_def, inv_def
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        limbs_def, one_def, p_def, zero_def, inv_def, typedef
     );
 }
 

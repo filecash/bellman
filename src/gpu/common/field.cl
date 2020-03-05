@@ -1,8 +1,6 @@
 // FinalityLabs - 2019
 // Arbitrary size prime-field arithmetic library (add, sub, mul, pow)
 
-typedef struct { limb val[FIELD_LIMBS]; } FIELD;
-
 // Greater than or equal
 bool FIELD_gte(FIELD a, FIELD b) {
   for(char i = FIELD_LIMBS - 1; i >= 0; i--){
