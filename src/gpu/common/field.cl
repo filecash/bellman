@@ -20,28 +20,6 @@ bool FIELD_eq(FIELD a, FIELD b) {
   return true;
 }
 
-// Normal addition
-FIELD FIELD_add_(FIELD a, FIELD b) {
-  bool carry = 0;
-  for(uchar i = 0; i < FIELD_LIMBS; i++) {
-    limb old = a.val[i];
-    a.val[i] += b.val[i] + carry;
-    carry = carry ? old >= a.val[i] : old > a.val[i];
-  }
-  return a;
-}
-
-// Normal subtraction
-FIELD FIELD_sub_(FIELD a, FIELD b) {
-  bool borrow = 0;
-  for(uchar i = 0; i < FIELD_LIMBS; i++) {
-    limb old = a.val[i];
-    a.val[i] -= b.val[i] + borrow;
-    borrow = borrow ? old <= a.val[i] : old < a.val[i];
-  }
-  return a;
-}
-
 /*
  * Montgomery reduction
  * Takes the result of a long multiplication (Which has twice the size of a FIELD)
