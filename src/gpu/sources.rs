@@ -95,29 +95,36 @@ where
         "{} {}_{}_({} a, {} b) {{\n",
         name, name, op, name, name
     ));
-    src.push_str("asm(");
-    src.push_str(format!("\"{}.cc.u64 %0, %0, %{};\\r\\n\"\n", op, len).as_str());
-    for i in 1..len - 1 {
-        src.push_str(format!("\"{}c.cc.u64 %{}, %{}, %{};\\r\\n\"\n", op, i, i, len + i).as_str());
-    }
-    src.push_str(
-        format!(
-            "\"{}c.u64 %{}, %{}, %{};\\r\\n\"\n",
-            op,
-            len - 1,
-            len - 1,
-            2 * len - 1
-        )
-        .as_str(),
-    );
-    src.push_str(":");
-    let inps = join((0..len).map(|n| format!("\"+l\"(a.val[{}])", n)), ", ");
-    src.push_str(inps.as_str());
 
-    src.push_str("\n:");
-    let outs = join((0..len).map(|n| format!("\"l\"(b.val[{}])", n)), ", ");
-    src.push_str(outs.as_str());
-    src.push_str(");\nreturn a;\n}\n");
+    if len > 1 {
+        src.push_str("asm(");
+        src.push_str(format!("\"{}.cc.u64 %0, %0, %{};\\r\\n\"\n", op, len).as_str());
+        for i in 1..len - 1 {
+            src.push_str(
+                format!("\"{}c.cc.u64 %{}, %{}, %{};\\r\\n\"\n", op, i, i, len + i).as_str(),
+            );
+        }
+        src.push_str(
+            format!(
+                "\"{}c.u64 %{}, %{}, %{};\\r\\n\"\n",
+                op,
+                len - 1,
+                len - 1,
+                2 * len - 1
+            )
+            .as_str(),
+        );
+        src.push_str(":");
+        let inps = join((0..len).map(|n| format!("\"+l\"(a.val[{}])", n)), ", ");
+        src.push_str(inps.as_str());
+
+        src.push_str("\n:");
+        let outs = join((0..len).map(|n| format!("\"l\"(b.val[{}])", n)), ", ");
+        src.push_str(outs.as_str());
+        src.push_str(");\n");
+    }
+
+    src.push_str("return a;\n}\n");
 
     return src;
 }
