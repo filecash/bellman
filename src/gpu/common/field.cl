@@ -1,6 +1,20 @@
 // FinalityLabs - 2019
 // Arbitrary size prime-field arithmetic library (add, sub, mul, pow)
 
+// Modular subtraction
+FIELD FIELD_sub(FIELD a, FIELD b) {
+  FIELD res = FIELD_sub_(a, b);
+  if(!FIELD_gte(a, b)) res = FIELD_add_(res, FIELD_P);
+  return res;
+}
+
+// Modular addition
+FIELD FIELD_add(FIELD a, FIELD b) {
+  FIELD res = FIELD_add_(a, b);
+  if(FIELD_gte(res, FIELD_P)) res = FIELD_sub_(res, FIELD_P);
+  return res;
+}
+
 // Greater than or equal
 bool FIELD_gte(FIELD a, FIELD b) {
   for(char i = FIELD_LIMBS - 1; i >= 0; i--){
@@ -60,20 +74,6 @@ FIELD FIELD_mul(FIELD a, FIELD b) {
 
   // Result doesn't fit into a FIELD, so a Montgomery reduction is needed.
   return FIELD_reduce(res);
-}
-
-// Modular subtraction
-FIELD FIELD_sub(FIELD a, FIELD b) {
-  FIELD res = FIELD_sub_(a, b);
-  if(!FIELD_gte(a, b)) res = FIELD_add_(res, FIELD_P);
-  return res;
-}
-
-// Modular addition
-FIELD FIELD_add(FIELD a, FIELD b) {
-  FIELD res = FIELD_add_(a, b);
-  if(FIELD_gte(res, FIELD_P)) res = FIELD_sub_(res, FIELD_P);
-  return res;
 }
 
 // Squaring is a special case of multiplication which can be done ~1.5x faster.
