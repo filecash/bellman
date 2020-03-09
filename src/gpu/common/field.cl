@@ -1,20 +1,6 @@
 // FinalityLabs - 2019
 // Arbitrary size prime-field arithmetic library (add, sub, mul, pow)
 
-// Modular subtraction
-FIELD FIELD_sub(FIELD a, FIELD b) {
-  FIELD res = FIELD_sub_(a, b);
-  if(!FIELD_gte(a, b)) res = FIELD_add_(res, FIELD_P);
-  return res;
-}
-
-// Modular addition
-FIELD FIELD_add(FIELD a, FIELD b) {
-  FIELD res = FIELD_add_(a, b);
-  if(FIELD_gte(res, FIELD_P)) res = FIELD_sub_(res, FIELD_P);
-  return res;
-}
-
 // Greater than or equal
 bool FIELD_gte(FIELD a, FIELD b) {
   for(char i = FIELD_LIMBS - 1; i >= 0; i--){
@@ -32,6 +18,20 @@ bool FIELD_eq(FIELD a, FIELD b) {
     if(a.val[i] != b.val[i])
       return false;
   return true;
+}
+
+// Modular subtraction
+FIELD FIELD_sub(FIELD a, FIELD b) {
+  FIELD res = FIELD_sub_(a, b);
+  if(!FIELD_gte(a, b)) res = FIELD_add_(res, FIELD_P);
+  return res;
+}
+
+// Modular addition
+FIELD FIELD_add(FIELD a, FIELD b) {
+  FIELD res = FIELD_add_(a, b);
+  if(FIELD_gte(res, FIELD_P)) res = FIELD_sub_(res, FIELD_P);
+  return res;
 }
 
 /*
