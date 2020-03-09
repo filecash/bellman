@@ -29,23 +29,20 @@ bool FIELD_eq(FIELD a, FIELD b) {
  * https://alicebob.cryptoland.net/understanding-the-montgomery-reduction-algorithm/
  */
 FIELD FIELD_reduce(limb *limbs) {
-  bool carry2 = 0;
+  FIELD carries;
   for(uchar i = 0; i < FIELD_LIMBS; i++) {
     limb u = FIELD_INV * limbs[i];
     limb carry = 0;
     for(uchar j = 0; j < FIELD_LIMBS; j++)
       limbs[i + j] = mac_with_carry(u, FIELD_P.val[j], limbs[i + j], &carry);
-    limbs[i + FIELD_LIMBS] = add2_with_carry(limbs[i + FIELD_LIMBS], carry, &carry2);
+    carries.val[i] = carry;
   }
 
   // Divide by R (Or take the upper half of `limbs` array as the final result)
   FIELD result;
   for(uchar i = 0; i < FIELD_LIMBS; i++) result.val[i] = limbs[i+FIELD_LIMBS];
 
-  if(FIELD_gte(result, FIELD_P))
-    result = FIELD_sub_(result, FIELD_P);
-
-  return result;
+  return FIELD_add(result, carries);
 }
 
 // Modular multiplication
