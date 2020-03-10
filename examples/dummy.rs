@@ -1,32 +1,18 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-extern crate bellperson;
-extern crate ff;
-extern crate paired;
-extern crate rand;
-
-// For randomness (during paramgen and proof generation)
-use self::rand::{thread_rng, Rng};
-
-// Bring in some tools for using pairing-friendly curves
-use self::paired::Engine;
-
-use self::ff::{Field, PrimeField};
-
-// We're going to use the BLS12-381 pairing-friendly elliptic curve.
-use self::paired::bls12_381::{Bls12, Fr};
-
-// We'll use these interfaces to construct our circuit.
-use self::bellperson::{Circuit, ConstraintSystem, SynthesisError};
-
-// We're going to use the Groth16 proving system.
-use self::bellperson::groth16::{
+use bellperson::groth16::{
     create_random_proof, generate_random_parameters, prepare_verifying_key, verify_proof, Proof,
 };
+use bellperson::{Circuit, ConstraintSystem, SynthesisError};
+use ff::{Field, PrimeField};
+use paired::bls12_381::{Bls12, Fr};
+use paired::Engine;
+use rand::{thread_rng, Rng};
 
 #[derive(Clone)]
 pub struct DummyDemo<E: Engine> {
     pub xx: Option<E::Fr>,
+    pub constraints: usize,
 }
 
 impl<E: Engine> Circuit<E> for DummyDemo<E> {
@@ -34,7 +20,7 @@ impl<E: Engine> Circuit<E> for DummyDemo<E> {
         let mut x_val = E::Fr::from_str("2");
         let mut x = cs.alloc(|| "", || x_val.ok_or(SynthesisError::AssignmentMissing))?;
 
-        for k in 0..1_000_000 {
+        for k in 0..self.constraints {
             // Allocate: x * x = x2
             let x2_val = x_val.map(|mut e| {
                 e.square();

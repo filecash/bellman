@@ -1,9 +1,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-extern crate bellperson;
-extern crate ff;
-extern crate paired;
-extern crate rand;
+
+use argh::FromArgs;
 use bellperson::groth16::Parameters;
 use bellperson::{Circuit, ConstraintSystem, SynthesisError};
 use ff::{Field, PrimeField};
@@ -17,6 +15,17 @@ use std::time::{Duration, Instant};
 
 mod dummy;
 
+/// Benchmark arbitrary sized circuits.
+#[derive(FromArgs)]
+struct Args {
+    /// should parameters be generated or loaded from file?
+    #[argh(switch)]
+    generate_params: bool,
+    /// how many constraints to generate?
+    #[argh(option)]
+    constraints: usize,
+}
+
 fn main() {
     env_logger::init();
     use bellperson::groth16::{
@@ -26,26 +35,32 @@ fn main() {
     use paired::bls12_381::{Bls12, Fr};
     use rand::thread_rng;
 
-    println!("I know the value of 2^(2^1000)");
-
+    let args: Args = argh::from_env();
     let rng = &mut thread_rng();
 
-    println!("Creating parameters...");
-
-    let load_parameters = true;
     let parameters_path = "parameters.dat";
 
+    let constraints = args.constraints;
+
+    println!("Using {} constraints", constraints);
+
     // Create parameters for our circuit
-    let params = if load_parameters {
+    let params = if !args.generate_params {
+        println!("Loading parameters");
+
         let param_file = File::open(parameters_path).expect("Unable to open parameters file!");
         Parameters::<Bls12>::read(param_file, false /* false for better performance*/)
             .expect("Unable to read parameters file!")
     } else {
-        let c = dummy::DummyDemo::<Bls12> { xx: None };
+        println!("Generating parameters");
+
+        let c = dummy::DummyDemo::<Bls12> {
+            constraints,
+            xx: None,
+        };
 
         let p = generate_random_parameters(c, rng).unwrap();
-        let mut param_file =
-            File::create(parameters_path).expect("Unable to create parameters file!");
+        let param_file = File::create(parameters_path).expect("Unable to create parameters file!");
         p.write(param_file)
             .expect("Unable to write parameters file!");
         p
@@ -56,11 +71,14 @@ fn main() {
 
     // Create an instance of circuit
     let c = dummy::DummyDemo::<Bls12> {
+        constraints,
         xx: Fr::from_str("3"),
     };
 
-    println!("Creating proofs...");
     const SAMPLES: usize = 10;
+
+    println!("Creating {} proofs...", SAMPLES);
+
     for _ in 0..SAMPLES {
         let now = Instant::now();
 
@@ -74,10 +92,12 @@ fn main() {
 
         println!("{}", verify_proof(&pvk, &proof, &[]).unwrap());
     }
+
     println!("Batch proof");
     let now = Instant::now();
 
     let proof = create_random_proof_batch(vec![c; SAMPLES], &params, rng).unwrap();
+
     println!(
         "Total proof batch gen finished in {}s and {}ms for {} proofs",
         now.elapsed().as_secs(),
