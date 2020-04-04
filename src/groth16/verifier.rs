@@ -4,6 +4,7 @@ use paired::{Engine, PairingCurveAffine};
 use rayon::prelude::*;
 
 use super::{BatchPreparedVerifyingKey, PreparedVerifyingKey, Proof, VerifyingKey};
+use crate::multicore::Worker;
 use crate::SynthesisError;
 
 pub fn prepare_verifying_key<E: Engine>(vk: &VerifyingKey<E>) -> PreparedVerifyingKey<E> {
@@ -82,6 +83,7 @@ where
         }
     }
 
+    let worker = Worker::new();
     let pi_num = pvk.ic.len() - 1;
     let proof_num = proofs.len();
 
@@ -123,9 +125,22 @@ where
     // create group element corresponding to public input combination
     // This roughly corresponds to Accum_Gamma in spec
     let mut acc_pi = pvk.ic[0].mul(sum_r.into_repr());
-    for (i, b) in pi_scalars.iter().zip(pvk.ic.iter().skip(1)) {
-        acc_pi.add_assign(&b.mul(i.into_repr()));
-    }
+    let skipped_ic = &pvk.ic[1..];
+    worker.scope(pi_num, |scope, chunk| {
+        let mut results = Vec::new();
+        for (i_s, b_s) in pi_scalars.chunks(chunk).zip(skipped_ic.chunks(chunk)) {
+            results.push(scope.spawn(move |_| {
+                let mut acc = E::G1::zero();
+                for (i, b) in i_s.iter().zip(b_s.iter()) {
+                    acc.add_assign(&b.mul(i.into_repr()));
+                }
+                acc
+            }));
+        }
+        for result in results {
+            acc_pi.add_assign(&result.join().unwrap());
+        }
+    });
 
     // This corresponds to Accum_Y
     // -Accum_Y
