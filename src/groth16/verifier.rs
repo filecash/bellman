@@ -130,7 +130,7 @@ where
     // This roughly corresponds to Accum_Gamma in spec
     let mut acc_pi = pvk.ic[0].mul(sum_r.into_repr());
     let log_d = (pi_num as f32).log2().ceil() as usize;
-    let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, true));
+    let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, false));
     acc_pi.add_assign(
         &multiexp(
             &worker,
