@@ -9,7 +9,9 @@ pub mod multieq;
 pub mod multipack;
 pub mod num;
 pub mod sha256;
+pub mod sha512;
 pub mod uint32;
+pub mod uint64;
 
 use crate::SynthesisError;
 
