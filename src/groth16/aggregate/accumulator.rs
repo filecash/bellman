@@ -2,7 +2,6 @@ use crate::bls::Engine;
 use ff::{Field, PrimeField};
 use groupy::{CurveAffine, CurveProjective};
 use paired::PairingCurveAffine;
-use rand::rngs::OsRng;
 use rand::thread_rng;
 
 /// PairingCheck represents a check of the form e(A,B)e(C,D)... = T. Checks can
@@ -88,18 +87,32 @@ mod test {
     use super::*;
     use crate::bls::{Bls12, G1Projective, G2Projective};
     use groupy::CurveProjective;
+    use rand_core::RngCore;
     use rand_core::SeedableRng;
 
-    #[test]
-    fn test_pairing_randomize() {
-        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(0u64);
-        let g1r = G1Projective::random(&mut rng);
-        let g2r = G2Projective::random(&mut rng);
+    fn gen_pairing_check<R: RngCore>(r: &mut R) -> PairingCheck<Bls12> {
+        let g1r = G1Projective::random(r);
+        let g2r = G2Projective::random(r);
         let exp = Bls12::pairing(g1r.clone(), g2r.clone());
         let tuple = PairingCheck::<Bls12>::from_miller_inputs(
             &[(&g1r.into_affine(), &g2r.into_affine())],
             &exp,
         );
         assert!(tuple.verify());
+        tuple
+    }
+    #[test]
+    fn test_pairing_randomize() {
+        let mut rng = rand_chacha::ChaChaRng::seed_from_u64(0u64);
+        let tuples = (0..3)
+            .map(|_| gen_pairing_check(&mut rng))
+            .collect::<Vec<_>>();
+        let final_tuple = tuples
+            .iter()
+            .fold(PairingCheck::<Bls12>::new(), |mut acc, tu| {
+                acc.merge(&tu);
+                acc
+            });
+        assert!(final_tuple.verify());
     }
 }
