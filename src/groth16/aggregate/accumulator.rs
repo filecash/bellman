@@ -104,8 +104,11 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
     ) {
-        let rng: &mut R = &mut self.rng.lock().unwrap();
-        self.merge(PairingCheck::from_miller_inputs(rng, it, out));
+        let coeff = {
+            let rng: &mut R = &mut self.rng.lock().unwrap();
+            derive_non_zero::<E, _>(rng)
+        };
+        self.merge(PairingCheck::from_miller_inputs(coeff, it, out));
     }
 
     fn merge(&self, check: PairingCheck<E>) {
@@ -161,13 +164,11 @@ where
     /// e(rA,B)e(rC,D) ... = out^r <=>
     /// e(A,B)^r e(C,D)^r = out^r <=> e(g,h)^{abr + cdr} = out^r
     /// (e(g,h)^{ab + cd})^r = out^r
-    fn from_miller_inputs<'a, R: rand::RngCore>(
-        rng: R,
+    fn from_miller_inputs<'a>(
+        coeff: E::Fr,
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
     ) -> PairingCheck<E> {
-        let coeff = derive_non_zero::<E, R>(rng);
-
         let miller_out = it
             .into_par_iter()
             .map(|(a, b)| {
@@ -246,8 +247,9 @@ mod test {
         let g1r = G1Projective::random(r);
         let g2r = G2Projective::random(r);
         let exp = Bls12::pairing(g1r.clone(), g2r.clone());
+        let coeff = derive_non_zero::<Bls12, _>(r);
         let tuple = PairingCheck::<Bls12>::from_miller_inputs(
-            r,
+            coeff,
             &[(&g1r.into_affine(), &g2r.into_affine())],
             &exp,
         );
