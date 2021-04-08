@@ -20,6 +20,8 @@ pub struct PairingChecks<E: Engine, R: rand::RngCore + Send> {
     merge_send: Sender<PairingCheck<E>>,
     valid_recv: Receiver<bool>,
     rng: Mutex<R>,
+    /// Ensures that the non randomized check is only added exactly once.
+    non_random_check_done: AtomicBool,
 }
 
 impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
@@ -49,6 +51,7 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
             merge_send,
             valid_recv,
             rng: Mutex::new(rng),
+            non_random_check_done: AtomicBool::new(false),
         }
     }
 
@@ -57,12 +60,43 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
         self.valid.store(false, SeqCst);
     }
 
-    pub fn merge_pair(&self, result: E::Fqk, exp: E::Fqk) {
+    fn merge_pair(&self, result: E::Fqk, exp: E::Fqk) {
         self.merge(PairingCheck::from_pair(result, exp));
     }
 
-    pub fn merge_miller_one(&self, result: E::Fqk) {
+    fn merge_miller_one(&self, result: E::Fqk) {
         self.merge(PairingCheck::from_miller_one(result));
+    }
+
+    pub fn merge_parts<F, G, H, I>(&self, f: F, g: G, h: H, i: I)
+    where
+        F: Fn() -> E::Fqk + Send,
+        G: Fn() -> E::Fqk + Send,
+        H: Fn() -> E::Fqk + Send,
+        I: Fn() -> (E::Fqk, E::Fqk) + Send,
+    {
+        assert!(
+            !self.non_random_check_done.load(SeqCst),
+            "merge_parts can only be called once"
+        );
+
+        rayon::scope(|s| {
+            s.spawn(move |_| {
+                self.merge_miller_one(f());
+            });
+            s.spawn(move |_| {
+                self.merge_miller_one(g());
+            });
+            s.spawn(move |_| {
+                self.merge_miller_one(h());
+            });
+            s.spawn(move |_| {
+                let (a, b) = i();
+                self.merge_pair(a, b);
+            });
+        });
+
+        self.non_random_check_done.store(true, SeqCst);
     }
 
     pub fn merge_miller_inputs<'a>(
