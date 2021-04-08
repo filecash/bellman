@@ -8,7 +8,7 @@ use groupy::{CurveAffine, CurveProjective};
 #[cfg(feature = "pairing")]
 use paired::{Engine, PairingCurveAffine};
 use rand::rngs::OsRng;
-
+use rayon::prelude::*;
 /// PairingCheck represents a check of the form e(A,B)e(C,D)... = T. Checks can
 /// be aggregated together using random linear combination. The efficiency comes
 /// from keeping the results from the miller loop output before proceding to a final
@@ -62,8 +62,23 @@ where
                 (na.prepare(), b.prepare())
             })
             .collect::<Vec<_>>();
-        let pairs_ref: Vec<_> = pairs.iter().map(|(a, b)| (a, b)).collect();
-        let miller_out = E::miller_loop(pairs_ref.iter());
+        let miller_out = pairs
+            .par_iter()
+            .map(|(a, b)| E::miller_loop(&[(a, b)]))
+            .fold(
+                || E::Fqk::one(),
+                |mut acc, res| {
+                    acc.mul_assign(&res);
+                    acc
+                },
+            )
+            .reduce(
+                || E::Fqk::one(),
+                |mut acc, res| {
+                    acc.mul_assign(&res);
+                    acc
+                },
+            );
         let mut outt = out.clone();
         if out != &E::Fqk::one() {
             // we only need to make this expensive operation is the output is
