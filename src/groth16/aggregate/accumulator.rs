@@ -1,14 +1,13 @@
-use ff::{Field, PrimeField};
-use groupy::{CurveAffine, CurveProjective};
-use rand::thread_rng;
-
-#[cfg(feature = "pairing")]
-use paired::{Engine, PairingCurveAffine};
-
 #[cfg(feature = "blst")]
 use crate::bls::Engine;
 #[cfg(feature = "blst")]
 use blstrs::PairingCurveAffine;
+use core::default::Default;
+use ff::{Field, PrimeField};
+use groupy::{CurveAffine, CurveProjective};
+#[cfg(feature = "pairing")]
+use paired::{Engine, PairingCurveAffine};
+use rand::rngs::OsRng;
 
 /// PairingCheck represents a check of the form e(A,B)e(C,D)... = T. Checks can
 /// be aggregated together using random linear combination. The efficiency comes
@@ -53,7 +52,8 @@ where
     where
         I: IntoIterator<Item = &'a (&'a E::G1Affine, &'a E::G2Affine)>,
     {
-        let mut rng = thread_rng();
+        //let mut rng = thread_rng();
+        let mut rng: OsRng = Default::default();
         let coeff = E::Fr::random(&mut rng);
         assert!(coeff != E::Fr::zero());
         let pairs = it
