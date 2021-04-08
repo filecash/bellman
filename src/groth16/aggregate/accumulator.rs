@@ -2,13 +2,96 @@
 use crate::bls::Engine;
 #[cfg(feature = "blst")]
 use blstrs::PairingCurveAffine;
-use core::default::Default;
+
+use crossbeam_channel::{bounded, Receiver, Sender};
 use ff::{Field, PrimeField};
 use groupy::{CurveAffine, CurveProjective};
 #[cfg(feature = "pairing")]
 use paired::{Engine, PairingCurveAffine};
-use rand::rngs::OsRng;
 use rayon::prelude::*;
+
+use std::sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc, Mutex,
+};
+
+pub struct PairingChecks<E: Engine, R: rand::RngCore + Send> {
+    valid: Arc<AtomicBool>,
+    merge_send: Sender<PairingCheck<E>>,
+    valid_recv: Receiver<bool>,
+    rng: Mutex<R>,
+}
+
+impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
+    pub fn new(rng: R) -> Self {
+        let (merge_send, merge_recv): (Sender<PairingCheck<E>>, Receiver<PairingCheck<E>>) =
+            bounded(10);
+        let (valid_send, valid_recv) = bounded(1);
+
+        let valid = Arc::new(AtomicBool::new(true));
+        let valid_copy = valid.clone();
+
+        rayon::spawn(move || {
+            let mut acc = PairingCheck::new();
+            while let Ok(tuple) = merge_recv.recv() {
+                // only do work as long as we know we are still valid
+                if valid_copy.load(SeqCst) {
+                    acc.merge(&tuple);
+                }
+            }
+            if valid_copy.load(SeqCst) {
+                valid_send.send(acc.verify()).expect("failed to send");
+            }
+        });
+
+        PairingChecks {
+            valid,
+            merge_send,
+            valid_recv,
+            rng: Mutex::new(rng),
+        }
+    }
+
+    /// Fails the whole check.
+    pub fn invalidate(&self) {
+        self.valid.store(false, SeqCst);
+    }
+
+    pub fn merge_pair(&self, result: E::Fqk, exp: E::Fqk) {
+        self.merge(PairingCheck::from_pair(result, exp));
+    }
+
+    pub fn merge_miller_one(&self, result: E::Fqk) {
+        self.merge(PairingCheck::from_miller_one(result));
+    }
+
+    pub fn merge_miller_inputs<'a>(
+        &self,
+        it: &[(&'a E::G1Affine, &'a E::G2Affine)],
+        out: &'a E::Fqk,
+    ) {
+        let rng: &mut R = &mut self.rng.lock().unwrap();
+        self.merge(PairingCheck::from_miller_inputs(rng, it, out));
+    }
+
+    fn merge(&self, check: PairingCheck<E>) {
+        self.merge_send.send(check).unwrap();
+    }
+
+    pub fn verify(self) -> bool {
+        let Self {
+            valid,
+            merge_send,
+            valid_recv,
+            ..
+        } = self;
+
+        drop(merge_send); // stop the merge process
+
+        valid.load(SeqCst) && valid_recv.recv().unwrap_or_default()
+    }
+}
+
 /// PairingCheck represents a check of the form e(A,B)e(C,D)... = T. Checks can
 /// be aggregated together using random linear combination. The efficiency comes
 /// from keeping the results from the miller loop output before proceding to a final
@@ -18,25 +101,21 @@ use rayon::prelude::*;
 /// before going into a final exponentiation result
 /// - a right side result which is already in the right subgroup Gt which is to
 /// be compared to the left side when "final_exponentiatiat"-ed
-pub struct PairingCheck<E: Engine>(E::Fqk, E::Fqk);
+struct PairingCheck<E: Engine>(E::Fqk, E::Fqk);
 
 impl<E> PairingCheck<E>
 where
     E: Engine,
 {
-    pub fn new() -> PairingCheck<E> {
+    fn new() -> PairingCheck<E> {
         Self(E::Fqk::one(), E::Fqk::one())
     }
 
-    pub fn new_invalid() -> PairingCheck<E> {
-        Self(E::Fqk::one(), E::Fqk::zero())
-    }
-
-    pub fn from_pair(result: E::Fqk, exp: E::Fqk) -> PairingCheck<E> {
+    fn from_pair(result: E::Fqk, exp: E::Fqk) -> PairingCheck<E> {
         Self(result, exp)
     }
 
-    pub fn from_miller_one(result: E::Fqk) -> PairingCheck<E> {
+    fn from_miller_one(result: E::Fqk) -> PairingCheck<E> {
         Self(result, E::Fqk::one())
     }
 
@@ -48,11 +127,13 @@ where
     /// e(rA,B)e(rC,D) ... = out^r <=>
     /// e(A,B)^r e(C,D)^r = out^r <=> e(g,h)^{abr + cdr} = out^r
     /// (e(g,h)^{ab + cd})^r = out^r
-    pub fn from_miller_inputs<'a>(
+    fn from_miller_inputs<'a, R: rand::RngCore>(
+        rng: R,
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
     ) -> PairingCheck<E> {
-        let coeff = derive_non_zero::<E>();
+        let coeff = derive_non_zero::<E, R>(rng);
+
         let miller_out = it
             .into_par_iter()
             .map(|(a, b)| {
@@ -85,7 +166,7 @@ where
 
     /// takes another pairing tuple and combine both sides together as a random
     /// linear combination.
-    pub fn merge(&mut self, p2: &PairingCheck<E>) {
+    fn merge(&mut self, p2: &PairingCheck<E>) {
         // multiply miller loop results together
         self.0.mul_assign(&p2.0);
         // multiply right side in GT together
@@ -101,13 +182,12 @@ where
         // if p2.1 is one, then we don't need to change anything.
     }
 
-    pub fn verify(&self) -> bool {
+    fn verify(&self) -> bool {
         E::final_exponentiation(&self.0).unwrap() == self.1
     }
 }
 
-fn derive_non_zero<E: Engine>() -> E::Fr {
-    let mut rng: OsRng = Default::default();
+fn derive_non_zero<E: Engine, R: rand::RngCore>(mut rng: R) -> E::Fr {
     loop {
         let coeff = E::Fr::random(&mut rng);
         if coeff != E::Fr::zero() {
@@ -133,6 +213,7 @@ mod test {
         let g2r = G2Projective::random(r);
         let exp = Bls12::pairing(g1r.clone(), g2r.clone());
         let tuple = PairingCheck::<Bls12>::from_miller_inputs(
+            r,
             &[(&g1r.into_affine(), &g2r.into_affine())],
             &exp,
         );
