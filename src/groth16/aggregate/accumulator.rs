@@ -52,9 +52,7 @@ where
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
     ) -> PairingCheck<E> {
-        let mut rng: OsRng = Default::default();
-        let coeff = E::Fr::random(&mut rng);
-        assert!(coeff != E::Fr::zero());
+        let coeff = derive_non_zero::<E>();
         let miller_out = it
             .into_par_iter()
             .map(|(a, b)| {
@@ -105,6 +103,16 @@ where
 
     pub fn verify(&self) -> bool {
         E::final_exponentiation(&self.0).unwrap() == self.1
+    }
+}
+
+fn derive_non_zero<E: Engine>() -> E::Fr {
+    let mut rng: OsRng = Default::default();
+    loop {
+        let coeff = E::Fr::random(&mut rng);
+        if coeff != E::Fr::zero() {
+            return coeff;
+        }
     }
 }
 
