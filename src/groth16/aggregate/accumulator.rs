@@ -52,7 +52,6 @@ where
     where
         I: IntoIterator<Item = &'a (&'a E::G1Affine, &'a E::G2Affine)>,
     {
-        //let mut rng = thread_rng();
         let mut rng: OsRng = Default::default();
         let coeff = E::Fr::random(&mut rng);
         assert!(coeff != E::Fr::zero());
@@ -79,8 +78,17 @@ where
     pub fn merge(&mut self, p2: &PairingCheck<E>) {
         // multiply miller loop results together
         self.0.mul_assign(&p2.0);
-        // multiply  right side in GT together
-        self.1.mul_assign(&p2.1);
+        // multiply right side in GT together
+        if p2.1 != E::Fqk::one() {
+            if self.1 != E::Fqk::one() {
+                // if both sides are not one, then multiply
+                self.1.mul_assign(&p2.1);
+            } else {
+                // otherwise, only keep the side which is not one
+                self.1 = p2.1.clone();
+            }
+        }
+        // if p2.1 is one, then we don't need to change anything.
     }
 
     pub fn verify(&self) -> bool {
