@@ -48,23 +48,20 @@ where
     /// e(rA,B)e(rC,D) ... = out^r <=>
     /// e(A,B)^r e(C,D)^r = out^r <=> e(g,h)^{abr + cdr} = out^r
     /// (e(g,h)^{ab + cd})^r = out^r
-    pub fn from_miller_inputs<'a, I>(it: I, out: &'a E::Fqk) -> PairingCheck<E>
-    where
-        I: IntoIterator<Item = &'a (&'a E::G1Affine, &'a E::G2Affine)>,
-    {
+    pub fn from_miller_inputs<'a>(
+        it: &[(&'a E::G1Affine, &'a E::G2Affine)],
+        out: &'a E::Fqk,
+    ) -> PairingCheck<E> {
         let mut rng: OsRng = Default::default();
         let coeff = E::Fr::random(&mut rng);
         assert!(coeff != E::Fr::zero());
-        let pairs = it
-            .into_iter()
-            .map(|&(a, b)| {
+        let miller_out = it
+            .into_par_iter()
+            .map(|(a, b)| {
                 let na = a.mul(coeff).into_affine();
                 (na.prepare(), b.prepare())
             })
-            .collect::<Vec<_>>();
-        let miller_out = pairs
-            .par_iter()
-            .map(|(a, b)| E::miller_loop(&[(a, b)]))
+            .map(|(a, b)| E::miller_loop(&[(&a, &b)]))
             .fold(
                 || E::Fqk::one(),
                 |mut acc, res| {
