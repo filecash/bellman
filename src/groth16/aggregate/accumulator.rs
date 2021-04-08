@@ -2,6 +2,7 @@ use crate::bls::Engine;
 use ff::{Field, PrimeField};
 use groupy::{CurveAffine, CurveProjective};
 use paired::PairingCurveAffine;
+use rand::rngs::OsRng;
 use rand::thread_rng;
 
 /// PairingCheck represents a check of the form e(A,B)e(C,D)... = T. Checks can
@@ -49,6 +50,7 @@ where
     {
         let mut rng = thread_rng();
         let coeff = E::Fr::random(&mut rng);
+        assert!(coeff != E::Fr::zero());
         let pairs = it
             .into_iter()
             .map(|&(a, b)| {
