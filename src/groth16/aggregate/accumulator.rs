@@ -15,10 +15,13 @@ use std::sync::{
     Arc, Mutex,
 };
 
+#[derive(Debug)]
 pub struct PairingChecks<E: Engine, R: rand::RngCore + Send> {
+    /// Circuit breaker to allow canceling all checks and marking the whole check as failed.
     valid: Arc<AtomicBool>,
     merge_send: Sender<PairingCheck<E>>,
     valid_recv: Receiver<bool>,
+    /// Random number generator used for generating the random coefficients.
     rng: Mutex<R>,
     /// Ensures that the non randomized check is only added exactly once.
     non_random_check_done: AtomicBool,
@@ -128,6 +131,7 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
 /// before going into a final exponentiation result
 /// - a right side result which is already in the right subgroup Gt which is to
 /// be compared to the left side when "final_exponentiatiat"-ed
+#[derive(Debug)]
 struct PairingCheck<E: Engine> {
     left: E::Fqk,
     right: E::Fqk,
