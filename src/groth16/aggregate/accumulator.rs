@@ -114,7 +114,7 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
             derive_non_zero::<E, _>(rng)
         };
         self.merge(
-            PairingCheck::from_miller_inputs(coeff, it, out),
+            PairingCheck::new_random_from_miller_inputs(coeff, it, out),
             must_randomize,
         );
     }
@@ -173,6 +173,14 @@ where
         }
     }
 
+    /// Returns a pairing check from the output of the miller pairs and the expected
+    /// right hand side such that the following must hold:
+    /// $$
+    /// \prod res = exp
+    /// $$
+    ///
+    /// Note the check is NOT randomized and there must be only up to ONE check only that can not
+    /// be randomized when merging.
     fn from_pair(result: E::Fqk, exp: E::Fqk) -> PairingCheck<E> {
         Self {
             left: result,
@@ -197,7 +205,7 @@ where
     /// e(rA,B)e(rC,D) ... = out^r <=>
     /// e(A,B)^r e(C,D)^r = out^r <=> e(g,h)^{abr + cdr} = out^r
     /// (e(g,h)^{ab + cd})^r = out^r
-    fn from_miller_inputs<'a>(
+    pub fn new_random_from_miller_inputs<'a>(
         coeff: E::Fr,
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
@@ -236,29 +244,30 @@ where
         }
     }
 
-    /// takes another pairing tuple and combine both sides together as a random
-    /// linear combination.
-    fn merge(&mut self, p2: &PairingCheck<E>) {
-        // multiply miller loop results together
-        self.left.mul_assign(&p2.left);
-        // multiply right side in GT together
-        if p2.right != E::Fqk::one() {
-            if self.right != E::Fqk::one() {
-                // if both sides are not one, then multiply
-                self.right.mul_assign(&p2.right);
-            } else {
-                // otherwise, only keep the side which is not one
-                self.right = p2.right.clone();
-            }
-        }
+    /// takes another pairing tuple and combine both sides together. Note the checks are not
+    /// randomized when merged, the checks must have been randomized before.
+    pub fn merge(&mut self, p2: &PairingCheck<E>) {
+        mul_if_not_one::<E>(&mut self.left, &p2.left);
+        mul_if_not_one::<E>(&mut self.right, &p2.right);
         // A merged PairingCheck is only randomized if both of its contributors are.
         self.randomized = self.randomized && p2.randomized;
-        // if p2.1 is one, then we don't need to change anything.
     }
 
     fn verify(&self) -> bool {
         E::final_exponentiation(&self.left).unwrap() == self.right
     }
+}
+
+fn mul_if_not_one<E: Engine>(left: &mut E::Fqk, right: &E::Fqk) {
+    let one = E::Fqk::one();
+    if left == &one {
+        *left = right.clone();
+        return;
+    } else if right == &one {
+        // nothing to do here
+        return;
+    }
+    left.mul_assign(right);
 }
 
 fn derive_non_zero<E: Engine, R: rand::RngCore>(mut rng: R) -> E::Fr {
@@ -287,7 +296,7 @@ mod test {
         let g2r = G2Projective::random(r);
         let exp = Bls12::pairing(g1r.clone(), g2r.clone());
         let coeff = derive_non_zero::<Bls12, _>(r);
-        let tuple = PairingCheck::<Bls12>::from_miller_inputs(
+        let tuple = PairingCheck::<Bls12>::new_random_from_miller_inputs(
             coeff,
             &[(&g1r.into_affine(), &g2r.into_affine())],
             &exp,

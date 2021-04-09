@@ -72,6 +72,13 @@ pub fn verify_aggregate_proof<E: Engine + std::fmt::Debug, R: rand::RngCore + Se
         let b = sub!(r, &E::Fr::one()).inverse().unwrap();
         r_sum.mul_assign(&b);
 
+        // The following parts 3 4 5 are independently computing the parts of the Groth16
+        // verification equation
+        // NOTE From this point on, we are only checking *one* pairing check (the Groth16
+        // verification equation) so we don't need to randomize as all other checks are being
+        // randomized already. When merging all pairing checks together, this will be the only one
+        // non-randomized.
+        //
         let (r_vec_sender, r_vec_receiver) = bounded(1);
         s.spawn(move |_| {
             let now = Instant::now();
@@ -81,10 +88,6 @@ pub fn verify_aggregate_proof<E: Engine + std::fmt::Debug, R: rand::RngCore + Se
             let elapsed = now.elapsed().as_millis();
             debug!("generation of r vector: {}ms", elapsed);
         });
-
-        // NOTE: From this point on, we are only checking *one* pairing check so
-        // we don't need to randomize as all other checks are being randomized
-        // already so this is the "base check" so to speak.
 
         par! {
             // 3. Compute left part of the final pairing equation
