@@ -15,6 +15,14 @@ use std::sync::{
     Arc, Mutex,
 };
 
+/// Holds the logic for merging multiple pairing checks of the form
+///
+/// $$
+///  e(A,B)e(C,D)\dots = T
+/// $$
+///
+/// Into a compressed form where only one final exponentiation is required. All
+/// checks but up to one will be randomized.
 #[derive(Debug)]
 pub struct PairingChecks<E: Engine, R: rand::RngCore + Send> {
     /// Circuit breaker to allow canceling all checks and marking the whole check as failed.
@@ -71,15 +79,30 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
         self.merge(PairingCheck::from_miller_one(result), must_randomize);
     }
 
-    pub fn merge_pairing_equation(&self, left: Vec<E::Fqk>, pair: (E::Fqk, E::Fqk)) {
-        let must_randomize = self.non_random_check_done.load(SeqCst);
-
-        for l in left.iter() {
-            self.merge_miller_one(*l, must_randomize);
+    /// takes a vector of elements  which are outputs of miller outputs and an
+    /// right element which fulfills the following:
+    ///
+    /// $$
+    /// \prod left_i = right
+    /// $$
+    ///
+    /// It can only be called ONCE as this is the only non random check allowed.
+    /// It panics if called more than once.
+    pub fn merge_nonrandom(&self, left: Vec<E::Fqk>, right: E::Fqk) {
+        let randomize = self.non_random_check_done.load(SeqCst);
+        self.merge_pair(left[0], right, randomize);
+        for l in left[1..].iter() {
+            self.merge_miller_one(*l, randomize);
         }
-        self.merge_pair(pair.0, pair.1, must_randomize);
     }
 
+    /// takes a vector of pairs elements to be passed down the miller loop and
+    /// the expected right hand side of the equation
+    ///
+    /// $$
+    /// FE ( \prod ML(A_i,B_i) ) = out
+    /// $$
+    /// where $FE$ is the final exponentiation and $ML$ is the miller loop.
     pub fn merge_miller_inputs<'a>(
         &self,
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
