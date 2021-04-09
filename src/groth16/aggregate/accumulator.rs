@@ -89,11 +89,10 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
     /// It can only be called ONCE as this is the only non random check allowed.
     /// It panics if called more than once.
     pub fn merge_nonrandom(&self, left: Vec<E::Fqk>, right: E::Fqk) {
-        let already_done = self.non_random_check_done.load(SeqCst);
-        assert!(!already_done); // only once we can call this function
-        self.merge_pair(left[0], right, false);
+        let randomize = self.non_random_check_done.load(SeqCst);
+        self.merge_pair(left[0], right, randomize);
         for l in left[1..].iter() {
-            self.merge_miller_one(*l, false);
+            self.merge_miller_one(*l, randomize);
         }
     }
 
