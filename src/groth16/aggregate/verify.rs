@@ -85,71 +85,74 @@ pub fn verify_aggregate_proof<E: Engine + std::fmt::Debug, R: rand::RngCore + Se
         // NOTE: From this point on, we are only checking *one* pairing check so
         // we don't need to randomize as all other checks are being randomized
         // already so this is the "base check" so to speak.
-        pairing_checks_copy.merge_parts(
+        pairing_checks_copy.merge_pairing_equation(
             // 3. Compute left part of the final pairing equation
-            move || {
-                let mut alpha_g1_r_sum = pvk.alpha_g1;
-                alpha_g1_r_sum.mul_assign(r_sum);
-                let ml = E::miller_loop(&[(&alpha_g1_r_sum.into_affine().prepare(), &pvk.beta_g2)]);
+            vec![
+                {
+                    let mut alpha_g1_r_sum = pvk.alpha_g1;
+                    alpha_g1_r_sum.mul_assign(r_sum);
+                    let ml =
+                        E::miller_loop(&[(&alpha_g1_r_sum.into_affine().prepare(), &pvk.beta_g2)]);
 
-                ml
-            },
-            // 4. Compute right part of the final pairing equation
-            move || {
-                E::miller_loop(&[(
-                    // e(c^r vector form, h^delta)
-                    // let agg_c = inner_product::multiexponentiation::<E::G1Affine>(&c, r_vec)
-                    &proof.agg_c.into_affine().prepare(),
-                    &pvk.delta_g2,
-                )])
-            },
-            // 5. compute the middle part of the final pairing equation, the one
-            //    with the public inputs
-            move || {
-                // We want to compute MUL(i:0 -> l) S_i ^ (SUM(j:0 -> n) ai,j * r^j)
-                // this table keeps tracks of incremental computation of each i-th
-                // exponent to later multiply with S_i
-                // The index of the table is i, which is an index of the public
-                // input element
-                // We incrementally build the r vector and the table
-                // NOTE: in this version it's not r^2j but simply r^j
+                    ml
+                },
+                // 4. Compute right part of the final pairing equation
+                {
+                    E::miller_loop(&[(
+                        // e(c^r vector form, h^delta)
+                        // let agg_c = inner_product::multiexponentiation::<E::G1Affine>(&c, r_vec)
+                        &proof.agg_c.into_affine().prepare(),
+                        &pvk.delta_g2,
+                    )])
+                },
+                // 5. compute the middle part of the final pairing equation, the one
+                //    with the public inputs
+                {
+                    // We want to compute MUL(i:0 -> l) S_i ^ (SUM(j:0 -> n) ai,j * r^j)
+                    // this table keeps tracks of incremental computation of each i-th
+                    // exponent to later multiply with S_i
+                    // The index of the table is i, which is an index of the public
+                    // input element
+                    // We incrementally build the r vector and the table
+                    // NOTE: in this version it's not r^2j but simply r^j
 
-                let l = public_inputs[0].len();
-                let mut g_ic = pvk.ic_projective[0];
-                g_ic.mul_assign(r_sum);
+                    let l = public_inputs[0].len();
+                    let mut g_ic = pvk.ic_projective[0];
+                    g_ic.mul_assign(r_sum);
 
-                let powers = r_vec_receiver.recv().unwrap();
+                    let powers = r_vec_receiver.recv().unwrap();
 
-                let now = Instant::now();
-                // now we do the multi exponentiation
-                let getter = |i: usize| -> <E::Fr as PrimeField>::Repr {
-                    // i denotes the column of the public input, and j denotes which public input
-                    let mut c = public_inputs[0][i];
-                    for j in 1..public_inputs.len() {
-                        let mut ai = public_inputs[j][i];
-                        ai.mul_assign(&powers[j]);
-                        c.add_assign(&ai);
-                    }
-                    c.into_repr()
-                };
+                    let now = Instant::now();
+                    // now we do the multi exponentiation
+                    let getter = |i: usize| -> <E::Fr as PrimeField>::Repr {
+                        // i denotes the column of the public input, and j denotes which public input
+                        let mut c = public_inputs[0][i];
+                        for j in 1..public_inputs.len() {
+                            let mut ai = public_inputs[j][i];
+                            ai.mul_assign(&powers[j]);
+                            c.add_assign(&ai);
+                        }
+                        c.into_repr()
+                    };
 
-                let totsi = par_multiscalar::<_, E::G1Affine>(
-                    &ScalarList::Getter(getter, l),
-                    &pvk.multiscalar.at_point(1),
-                    std::mem::size_of::<<E::Fr as PrimeField>::Repr>() * 8,
-                );
+                    let totsi = par_multiscalar::<_, E::G1Affine>(
+                        &ScalarList::Getter(getter, l),
+                        &pvk.multiscalar.at_point(1),
+                        std::mem::size_of::<<E::Fr as PrimeField>::Repr>() * 8,
+                    );
 
-                g_ic.add_assign(&totsi);
+                    g_ic.add_assign(&totsi);
 
-                let ml = E::miller_loop(&[(&g_ic.into_affine().prepare(), &pvk.gamma_g2)]);
-                let elapsed = now.elapsed().as_millis();
-                debug!("table generation: {}ms", elapsed);
+                    let ml = E::miller_loop(&[(&g_ic.into_affine().prepare(), &pvk.gamma_g2)]);
+                    let elapsed = now.elapsed().as_millis();
+                    debug!("table generation: {}ms", elapsed);
 
-                ml
-            },
+                    ml
+                },
+            ],
             // final value ip_ab is what we want to compare in the groth16
             // aggregated equation A * B
-            || (E::Fqk::one(), proof.ip_ab.clone()),
+            (E::Fqk::one(), proof.ip_ab.clone()),
         );
     });
 

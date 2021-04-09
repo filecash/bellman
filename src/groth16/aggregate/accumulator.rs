@@ -60,43 +60,21 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
         self.valid.store(false, SeqCst);
     }
 
-    fn merge_pair(&self, result: E::Fqk, exp: E::Fqk) {
-        self.merge(PairingCheck::from_pair(result, exp));
+    fn merge_pair(&self, result: E::Fqk, exp: E::Fqk, must_randomize: bool) {
+        self.merge(PairingCheck::from_pair(result, exp), must_randomize);
     }
 
-    fn merge_miller_one(&self, result: E::Fqk) {
-        self.merge(PairingCheck::from_miller_one(result));
+    fn merge_miller_one(&self, result: E::Fqk, must_randomize: bool) {
+        self.merge(PairingCheck::from_miller_one(result), must_randomize);
     }
 
-    pub fn merge_parts<F, G, H, I>(&self, f: F, g: G, h: H, i: I)
-    where
-        F: Fn() -> E::Fqk + Send,
-        G: Fn() -> E::Fqk + Send,
-        H: Fn() -> E::Fqk + Send,
-        I: Fn() -> (E::Fqk, E::Fqk) + Send,
-    {
-        assert!(
-            !self.non_random_check_done.load(SeqCst),
-            "merge_parts can only be called once"
-        );
+    pub fn merge_pairing_equation(&self, left: Vec<E::Fqk>, pair: (E::Fqk, E::Fqk)) {
+        let must_randomize = self.non_random_check_done.load(SeqCst);
 
-        rayon::scope(|s| {
-            s.spawn(move |_| {
-                self.merge_miller_one(f());
-            });
-            s.spawn(move |_| {
-                self.merge_miller_one(g());
-            });
-            s.spawn(move |_| {
-                self.merge_miller_one(h());
-            });
-            s.spawn(move |_| {
-                let (a, b) = i();
-                self.merge_pair(a, b);
-            });
-        });
-
-        self.non_random_check_done.store(true, SeqCst);
+        for l in left.iter() {
+            self.merge_miller_one(*l, must_randomize);
+        }
+        self.merge_pair(pair.0, pair.1, must_randomize);
     }
 
     pub fn merge_miller_inputs<'a>(
@@ -104,14 +82,26 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
         it: &[(&'a E::G1Affine, &'a E::G2Affine)],
         out: &'a E::Fqk,
     ) {
+        let must_randomize = self.non_random_check_done.load(SeqCst);
         let coeff = {
             let rng: &mut R = &mut self.rng.lock().unwrap();
             derive_non_zero::<E, _>(rng)
         };
-        self.merge(PairingCheck::from_miller_inputs(coeff, it, out));
+        self.merge(
+            PairingCheck::from_miller_inputs(coeff, it, out),
+            must_randomize,
+        );
     }
 
-    fn merge(&self, check: PairingCheck<E>) {
+    fn merge(&self, check: PairingCheck<E>, must_randomize: bool) {
+        if !check.randomized {
+            assert!(
+                !must_randomize,
+                "Cannot merge non-randomized check with must_randomize true."
+            );
+            self.non_random_check_done.store(true, SeqCst);
+        };
+
         self.merge_send.send(check).unwrap();
     }
 
@@ -138,22 +128,38 @@ impl<E: Engine, R: rand::RngCore + Send> PairingChecks<E, R> {
 /// before going into a final exponentiation result
 /// - a right side result which is already in the right subgroup Gt which is to
 /// be compared to the left side when "final_exponentiatiat"-ed
-struct PairingCheck<E: Engine>(E::Fqk, E::Fqk);
+struct PairingCheck<E: Engine> {
+    left: E::Fqk,
+    right: E::Fqk,
+    randomized: bool,
+}
 
 impl<E> PairingCheck<E>
 where
     E: Engine,
 {
     fn new() -> PairingCheck<E> {
-        Self(E::Fqk::one(), E::Fqk::one())
+        Self {
+            left: E::Fqk::one(),
+            right: E::Fqk::one(),
+            randomized: false,
+        }
     }
 
     fn from_pair(result: E::Fqk, exp: E::Fqk) -> PairingCheck<E> {
-        Self(result, exp)
+        Self {
+            left: result,
+            right: exp,
+            randomized: false,
+        }
     }
 
     fn from_miller_one(result: E::Fqk) -> PairingCheck<E> {
-        Self(result, E::Fqk::one())
+        Self {
+            left: result,
+            right: E::Fqk::one(),
+            randomized: false,
+        }
     }
 
     /// returns a pairing tuple that is scaled by a random element.
@@ -196,29 +202,35 @@ where
             // not one since 1^r = 1
             outt = outt.pow(&coeff.into_repr());
         }
-        PairingCheck(miller_out, outt)
+        PairingCheck {
+            left: miller_out,
+            right: outt,
+            randomized: true,
+        }
     }
 
     /// takes another pairing tuple and combine both sides together as a random
     /// linear combination.
     fn merge(&mut self, p2: &PairingCheck<E>) {
         // multiply miller loop results together
-        self.0.mul_assign(&p2.0);
+        self.left.mul_assign(&p2.left);
         // multiply right side in GT together
-        if p2.1 != E::Fqk::one() {
-            if self.1 != E::Fqk::one() {
+        if p2.right != E::Fqk::one() {
+            if self.right != E::Fqk::one() {
                 // if both sides are not one, then multiply
-                self.1.mul_assign(&p2.1);
+                self.right.mul_assign(&p2.right);
             } else {
                 // otherwise, only keep the side which is not one
-                self.1 = p2.1.clone();
+                self.right = p2.right.clone();
             }
         }
+        // A merged PairingCheck is only randomized if both of its contributors are.
+        self.randomized = self.randomized && p2.randomized;
         // if p2.1 is one, then we don't need to change anything.
     }
 
     fn verify(&self) -> bool {
-        E::final_exponentiation(&self.0).unwrap() == self.1
+        E::final_exponentiation(&self.left).unwrap() == self.right
     }
 }
 
