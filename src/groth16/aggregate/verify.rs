@@ -149,11 +149,11 @@ pub fn verify_aggregate_proof<E: Engine + std::fmt::Debug, R: rand::RngCore + Se
             }
         };
 
-        pairing_checks_copy.merge_pairing_equation(
+        pairing_checks_copy.merge_nonrandom(
             vec![left, middle, right],
             // final value ip_ab is what we want to compare in the groth16
             // aggregated equation A * B
-            (E::Fqk::one(), proof.ip_ab.clone()),
+            proof.ip_ab.clone(),
         );
     });
 
