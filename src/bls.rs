@@ -5,7 +5,7 @@ pub use blstrs::{
     PairingCurveAffine, Scalar as Fr, ScalarRepr as FrRepr,
 };
 
-#[cfg(feature = "pairing")]
+#[cfg(all(feature = "pairing", not(feature = "blst")))]
 pub use paired::{
     bls12_381::{
         Bls12, Fq, Fq12, Fq2, FqRepr, Fr, FrRepr, G1Affine, G1Compressed, G1Uncompressed, G2Affine,
