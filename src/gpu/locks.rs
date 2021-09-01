@@ -3,6 +3,11 @@ use log::{debug, info, warn};
 use std::fs::File;
 use std::path::PathBuf;
 
+// wdpost&wnpost parallel calc
+use rust_gpu_tools::*;
+use std::thread;
+use std::time::Duration;
+
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
 // wdpost&wnpost parallel calc
