@@ -222,11 +222,16 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         let lock = locks::GPULock::lock();
+        // wdpost&wnpost parallel calc
+        let id = lock.id();
 
         let devices = opencl::Device::all()?;
 
         let kernels: Vec<_> = devices
             .into_iter()
+            // wdpost&wnpost parallel calc
+            .filter(| d | d.bus_id().unwrap() ==  id )
+
             .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d, priority)))
             .filter_map(|(device, res)| {
                 if let Err(ref e) = res {
@@ -248,10 +253,14 @@ where
             kernels.len(),
             get_cpu_utilization()
         );
-        for (i, k) in kernels.iter().enumerate() {
+        // wdpost&wnpost parallel calc
+        //for (i, k) in kernels.iter().enumerate() {
+        for (_, k) in kernels.iter().enumerate() {
             info!(
                 "Multiexp: Device {}: {} (Chunk-size: {})",
-                i,
+                // wdpost&wnpost parallel calc
+                k.program.device().bus_id().unwrap(), //i,
+                
                 k.program.device().name(),
                 k.n
             );

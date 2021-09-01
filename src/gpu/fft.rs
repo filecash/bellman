@@ -29,6 +29,8 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
         let lock = locks::GPULock::lock();
+        // wdpost&wnpost parallel calc
+        let id = lock.id();
 
         let devices = opencl::Device::all()?;
         if devices.is_empty() {
@@ -36,7 +38,9 @@ where
         }
 
         // Select the first device for FFT
-        let device = devices[0].clone();
+        // wdpost&wnpost parallel calc
+        //let device = devices[0].clone();
+        let device = devices.into_iter().filter(|d| d.bus_id().unwrap() == id).next().unwrap().clone();
 
         let src = sources::kernel::<E>(device.brand() == opencl::Brand::Nvidia);
 
@@ -45,7 +49,9 @@ where
         let omegas_buffer = program.create_buffer::<E::Fr>(LOG2_MAX_ELEMENTS)?;
 
         info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", program.device().name());
+        // wdpost&wnpost parallel calc
+        //info!("FFT: Device 0: {}", program.device().name());
+        info!("FFT: Device {}: {}", id, program.device().name());
 
         Ok(FFTKernel {
             program,

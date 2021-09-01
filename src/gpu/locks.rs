@@ -5,22 +5,39 @@ use std::path::PathBuf;
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
-fn tmp_path(filename: &str) -> PathBuf {
+// wdpost&wnpost parallel calc
+fn gpu_lock_path(filename: &str, bus_id: u32) -> PathBuf {
+    let mut name = String::from(filename);
+    name.push('.');
+    name += &bus_id.to_string();
     let mut p = std::env::temp_dir();
-    p.push(filename);
+    p.push(&name);
     p
 }
 
+
 /// `GPULock` prevents two kernel objects to be instantiated simultaneously.
 #[derive(Debug)]
-pub struct GPULock(File);
+// wdpost&wnpost parallel calc
+pub struct GPULock(File, u32);
 impl GPULock {
+    pub fn id(&self) -> u32 {
+        self.1
+    }
     pub fn lock() -> GPULock {
-        debug!("Acquiring GPU lock...");
-        let f = File::create(tmp_path(GPU_LOCK_NAME)).unwrap();
-        f.lock_exclusive().unwrap();
-        debug!("GPU lock acquired!");
-        GPULock(f)
+        loop{
+            let devs = opencl::Device::all();
+            for dev in devs {
+                let id = dev.bus_id().unwrap();
+                let lock = gpu_lock_path(GPU_LOCK_NAME, id);
+                let lock = File::create(&lock)
+                    .unwrap_or_else(|_| panic!("Cannot create GPU lock file at {:?}", &lock));
+                if lock.try_lock_exclusive().is_ok() {
+                    return GPULock(lock, id);
+                }
+            }
+            thread::sleep(Duration::from_secs(3));
+        }
     }
 }
 impl Drop for GPULock {
@@ -34,29 +51,46 @@ impl Drop for GPULock {
 /// signaling all other processes to release their `GPULock`s.
 /// Only one process can have the `PriorityLock` at a time.
 #[derive(Debug)]
-pub struct PriorityLock(File);
+// wdpost&wnpost parallel calc
+pub struct PriorityLock(File, u32);
 impl PriorityLock {
     pub fn lock() -> PriorityLock {
-        debug!("Acquiring priority lock...");
-        let f = File::create(tmp_path(PRIORITY_LOCK_NAME)).unwrap();
-        f.lock_exclusive().unwrap();
-        debug!("Priority lock acquired!");
-        PriorityLock(f)
+        loop{
+            let devs = opencl::Device::all();
+            for dev in devs {
+                let id = dev.bus_id().unwrap();
+                let f = gpu_lock_path(PRIORITY_LOCK_NAME, id);
+                let f = File::create(&f)
+                    .unwrap_or_else(|_| panic!("Cannot create Priority lock file at {:?}", &f));
+                if f.try_lock_exclusive().is_ok() {
+                    return PriorityLock(f, id);
+                }
+            }
+            thread::sleep(Duration::from_secs(3));
+        }
     }
     pub fn wait(priority: bool) {
         if !priority {
-            File::create(tmp_path(PRIORITY_LOCK_NAME))
-                .unwrap()
-                .lock_exclusive()
-                .unwrap();
+            let _ = Self::lock();
         }
     }
     pub fn should_break(priority: bool) -> bool {
         !priority
-            && File::create(tmp_path(PRIORITY_LOCK_NAME))
-                .unwrap()
-                .try_lock_exclusive()
-                .is_err()
+            && {
+                let mut r = true;
+                let devs = opencl::Device::all();
+                for dev in devs {
+                    let id = dev.bus_id().unwrap();
+                    let f = gpu_lock_path(PRIORITY_LOCK_NAME, id);
+                    let f = File::create(&f)
+                        .unwrap_or_else(|_| panic!("Cannot create Priority lock file at {:?}", &f));
+                    if f.try_lock_exclusive().is_ok() {
+                        r = false;
+                        break;
+                    }
+                }
+                r
+            }
     }
 }
 impl Drop for PriorityLock {
