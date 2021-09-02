@@ -31,7 +31,7 @@ impl GPULock {
     }
     pub fn lock() -> GPULock {
         loop{
-            let devs = opencl::Device::all();
+            let devs = rust_gpu_tools::opencl::Device::all();
             for dev in devs {
                 let id = dev.bus_id().unwrap();
                 let lock = gpu_lock_path(GPU_LOCK_NAME, id);

@@ -32,7 +32,7 @@ where
         // wdpost&wnpost parallel calc
         let id = lock.id();
 
-        let devices = opencl::Device::all()?;
+        let devices = opencl::Device::all();
         if devices.is_empty() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
