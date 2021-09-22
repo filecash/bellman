@@ -59,6 +59,7 @@ impl Worker {
     where
         F: FnOnce(&rayon::Scope<'a>, usize) -> R + Send,
         R: Send,
+        F: 'a,
     {
         let chunk_size = if elements < *NUM_CPUS {
             1
@@ -66,7 +67,7 @@ impl Worker {
             elements / *NUM_CPUS
         };
 
-        THREAD_POOL.scope(|scope| f(scope, chunk_size))
+        THREAD_POOL.scope(move |scope| f(scope, chunk_size))
     }
 }
 

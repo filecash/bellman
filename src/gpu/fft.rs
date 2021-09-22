@@ -29,8 +29,8 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
         let lock = locks::GPULock::lock();
+        let id = lock.id(); // Added by jackoelv for C2 20210330
         // wdpost&wnpost parallel calc
-        let id = lock.id();
 
         let devices = opencl::Device::all();
         if devices.is_empty() {
@@ -76,9 +76,10 @@ where
         deg: u32,
         max_deg: u32,
     ) -> GPUResult<()> {
-        if locks::PriorityLock::should_break(self.priority) {
-            return Err(GPUError::GPUTaken);
-        }
+        // if locks::PriorityLock::should_break(self.priority) {
+        //     return Err(GPUError::GPUTaken);
+        // }
+        let _ = self.priority;
 
         let n = 1u32 << log_n;
         let local_work_size = 1 << cmp::min(deg - 1, MAX_LOG2_LOCAL_WORK_SIZE);
@@ -130,28 +131,66 @@ where
         Ok(())
     }
 
+
+    //     pub fn radix_fft(&mut self, a: &mut [E::Fr], omega: &E::Fr, log_n: u32) -> GPUResult<()> {
+//         let n = 1 << log_n;
+//         let mut src_buffer = self.program.create_buffer::<E::Fr>(n)?;
+//         let mut dst_buffer = self.program.create_buffer::<E::Fr>(n)?;
+
+//         let max_deg = cmp::min(MAX_LOG2_RADIX, log_n);
+//         self.setup_pq_omegas(omega, n, max_deg)?;
+
+//         src_buffer.write_from(0, &*a)?;
+//         let mut log_p = 0u32;
+//         while log_p < log_n {
+//             let deg = cmp::min(max_deg, log_n - log_p);
+//             self.radix_fft_round(&src_buffer, &dst_buffer, log_n, log_p, deg, max_deg)?;
+//             log_p += deg;
+//             std::mem::swap(&mut src_buffer, &mut dst_buffer);
+//         }
+
+//         src_buffer.read_into(0, a)?;
+
+//         Ok(())
+//     }
+// }
+
+
     /// Performs FFT on `a`
     /// * `omega` - Special value `omega` is used for FFT over finite-fields
     /// * `log_n` - Specifies log2 of number of elements
+    // --------------------------------------------
     pub fn radix_fft(&mut self, a: &mut [E::Fr], omega: &E::Fr, log_n: u32) -> GPUResult<()> {
         let n = 1 << log_n;
-        let mut src_buffer = self.program.create_buffer::<E::Fr>(n)?;
-        let mut dst_buffer = self.program.create_buffer::<E::Fr>(n)?;
+        let mut buffer0 = self.program.create_buffer::<E::Fr>(n)?;
+        let mut buffer1 = self.program.create_buffer::<E::Fr>(n)?;
 
         let max_deg = cmp::min(MAX_LOG2_RADIX, log_n);
         self.setup_pq_omegas(omega, n, max_deg)?;
-
-        src_buffer.write_from(0, &*a)?;
+        
+        buffer0.write_from(0, &*a)?; // Why NOT a ? by long
         let mut log_p = 0u32;
+        let mut flag = false;
         while log_p < log_n {
             let deg = cmp::min(max_deg, log_n - log_p);
-            self.radix_fft_round(&src_buffer, &dst_buffer, log_n, log_p, deg, max_deg)?;
+            flag = !flag;
+            if flag == true {
+                self.radix_fft_round(&buffer0, &mut buffer1, log_n, log_p, deg, max_deg)?;
+            } else {
+                self.radix_fft_round(&buffer1, &mut buffer0, log_n, log_p, deg, max_deg)?;
+            }
             log_p += deg;
-            std::mem::swap(&mut src_buffer, &mut dst_buffer);
         }
 
-        src_buffer.read_into(0, a)?;
+        if flag == true {
+            buffer1.read_into(0, a)?;
+        } else {
+            buffer0.read_into(0, a)?;
+        }
 
         Ok(())
     }
+    //-----------------------------------------
 }
+        
+

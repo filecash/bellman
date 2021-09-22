@@ -10,6 +10,7 @@ use std::time::Duration;
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
+
 // wdpost&wnpost parallel calc
 fn gpu_lock_path(filename: &str, bus_id: u32) -> PathBuf {
     let mut name = String::from(filename);
@@ -30,8 +31,12 @@ impl GPULock {
         self.1
     }
     pub fn lock() -> GPULock {
-        loop{
-            let devs = rust_gpu_tools::opencl::Device::all();
+        let glock = gpu_lock_path(GPU_LOCK_NAME, 0);
+        let glock = File::create(&glock)
+            .unwrap_or_else(|_| panic!("Cannot create GPU glock file at {:?}", &glock));
+        loop {
+            glock.lock_exclusive().unwrap();
+            let devs = opencl::Device::all();
             for dev in devs {
                 let id = dev.bus_id().unwrap();
                 let lock = gpu_lock_path(GPU_LOCK_NAME, id);
@@ -41,8 +46,54 @@ impl GPULock {
                     return GPULock(lock, id);
                 }
             }
+            glock.unlock().unwrap();
             thread::sleep(Duration::from_secs(3));
         }
+    }
+    
+    pub fn try_lock(id: u32) -> Result<GPULock, String> {
+        let gpu_lock_file = gpu_lock_path(GPU_LOCK_NAME, id);
+        debug!("Acquiring GPU lock at {:?} ...", &gpu_lock_file);
+        let f = File::create(&gpu_lock_file)
+            .unwrap_or_else(|_| panic!("Cannot create GPU lock file at {:?}", &gpu_lock_file));
+        let res = f.try_lock_exclusive();
+        match res {
+            Ok(_) => {
+                debug!("GPU lock acquired!");
+                Ok(GPULock(f, id))
+            },
+            Err(_) => {
+                Err("GPU is use!".to_string())
+            },
+        }
+    }
+    
+    pub fn lock_all() -> GPULock {
+        let glock = gpu_lock_path(GPU_LOCK_NAME, 0);
+        let glock = File::create(&glock)
+            .unwrap_or_else(|_| panic!("Cannot create GPU glock file at {:?}", &glock));
+        loop {
+            glock.lock_exclusive().unwrap();
+            let devs = opencl::Device::all();
+            let mut lock_cnt = 0;
+            let lock_num = devs.len();
+            for dev in devs {
+                let id = dev.bus_id().unwrap();
+                let lock = gpu_lock_path(GPU_LOCK_NAME, id);
+                let lock = File::create(&lock)
+                    .unwrap_or_else(|_| panic!("Cannot create GPU lock file at {:?}", &lock));
+                if lock.try_lock_exclusive().is_err() {
+                    break;
+                }
+                lock_cnt = lock_cnt + 1;
+            }
+            if lock_cnt == lock_num {
+                return GPULock(glock, 0);
+            }
+            glock.unlock().unwrap();
+            thread::sleep(Duration::from_secs(3));
+        }
+
     }
 }
 impl Drop for GPULock {
@@ -136,7 +187,8 @@ macro_rules! locked_kernel {
 
             fn init(&mut self) {
                 if self.kernel.is_none() {
-                    PriorityLock::wait(self.priority);
+                    // Deleted by long 20210816
+                    // PriorityLock::wait(self.priority);
                     info!("GPU is available for {}!", $name);
                     self.kernel = $func::<E>(self.log_d, self.priority);
                 }

@@ -282,6 +282,31 @@ where
         })
 }
 
+// density map filter for exponents
+pub fn density_filter<Q, D, G, S>(
+    bases: S,
+    density_map: D,
+    exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>
+) ->  (Arc<Vec<G>>, Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>, usize, usize)
+where
+for<'a> &'a Q: QueryDensity,
+D: Send + Sync + 'static + Clone + AsRef<Q>,
+G: CurveAffine,
+G::Engine: crate::bls::Engine,
+S: SourceBuilder<G>,
+{
+let mut exps = vec![exponents[0]; exponents.len()];
+let mut n = 0;
+for (&e, d) in exponents.iter().zip(density_map.as_ref().iter()) {
+    if d {
+        exps[n] = e;
+        n += 1;
+    }
+}
+let (bss, skip) = bases.get();
+(bss,Arc::new(exps),skip,n)
+}
+
 /// Perform multi-exponentiation. The caller is responsible for ensuring the
 /// query size is the same as the number of exponents.
 pub fn multiexp<Q, D, G, S>(
@@ -310,7 +335,9 @@ where
             }
 
             let (bss, skip) = bases.clone().get();
-            k.multiexp(pool, bss, Arc::new(exps.clone()), skip, n)
+            // Modified by jackoelv for C2 20210330
+            // k.multiexp(pool, bss, Arc::new(exps.clone()), skip, n)
+            k.multiexp(pool, bss, Arc::new(exps), skip, n)
         }) {
             return Waiter::done(Ok(p));
         }
@@ -341,6 +368,59 @@ where
     #[cfg(not(feature = "gpu"))]
     result
 }
+// Added by jackoelv for C2 20210330
+// fulldensity
+pub fn multiexp_fulldensity<Q, D, G, S>(
+    pool: &Worker,
+    bases: S,
+    _density_map: D,
+    exponents: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
+    kern: &mut Option<gpu::LockedMultiexpKernel<G::Engine>>,
+) -> Waiter<Result<<G as CurveAffine>::Projective, SynthesisError>>
+where
+    for<'a> &'a Q: QueryDensity,
+    D: Send + Sync + 'static + Clone + AsRef<Q>,
+    G: CurveAffine,
+    G::Engine: crate::bls::Engine,
+    S: SourceBuilder<G>,
+{
+    if let Some(ref mut kern) = kern {
+        if let Ok(p) = kern.with(|k: &mut gpu::MultiexpKernel<G::Engine>| {
+            let (bss, skip) = bases.clone().get();
+            k.multiexp(pool, bss, exponents.clone(), skip, exponents.len())
+        }) {
+            let result = Waiter::done(Ok(p));
+            return result
+        }
+    }
+    Waiter::done(Err(SynthesisError::GPUError(gpu::GPUError::GPUDisabled)))
+}
+
+// Added by jackoelv for C2 20210330
+// skipdensity
+pub fn multiexp_skipdensity<G>(
+    pool: &Worker,
+    bss: Arc<Vec<G>>,
+    exps: Arc<Vec<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>>,
+    skip: usize,
+    n: usize,
+    kern: &mut Option<gpu::LockedMultiexpKernel<G::Engine>>,
+) -> Waiter<Result<<G as CurveAffine>::Projective, SynthesisError>>
+where
+    G: CurveAffine,
+    G::Engine: crate::bls::Engine,
+{
+    if let Some(ref mut kern) = kern {
+        if let Ok(p) = kern.with(|k: &mut gpu::MultiexpKernel<G::Engine>| {
+            k.multiexp(pool, bss.clone(), exps.clone(), skip, n)
+        }) {
+            let result = Waiter::done(Ok(p));
+            return result
+        }
+    }
+    Waiter::done(Err(SynthesisError::GPUError(gpu::GPUError::GPUDisabled)))
+}
+
 
 #[cfg(any(feature = "pairing", feature = "blst"))]
 #[test]
@@ -397,6 +477,7 @@ pub fn create_multiexp_kernel<E>(_log_d: usize, priority: bool) -> Option<gpu::M
 where
     E: crate::bls::Engine,
 {
+    #[cfg(not(feature = "gpu"))]
     match gpu::MultiexpKernel::<E>::create(priority) {
         Ok(k) => {
             info!("GPU Multiexp kernel instantiated!");
@@ -404,6 +485,18 @@ where
         }
         Err(e) => {
             warn!("Cannot instantiate GPU Multiexp kernel! Error: {}", e);
+            None
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    match gpu::MultiexpKernel::<E>::sched_multiexp(priority) {
+        Ok(k) => {
+            info!("GPU Multiexp kernel instantiated! (from ===> sched_multiexp)");
+            Some(k)
+        }
+        Err(e) => {
+            warn!("Cannot instantiate GPU Multiexp kernel! Error: {} (from ===> sched_multiexp)", e);
             None
         }
     }
