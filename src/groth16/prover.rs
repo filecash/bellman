@@ -281,7 +281,7 @@ lazy_static! {
         block_on(async {
             let memory = memory::memory().await.unwrap();
             let total = memory.total().get::<information::gibibyte>();
-            (total / 230) as u32
+            (total / 140) as u32
         })
     );
 }
